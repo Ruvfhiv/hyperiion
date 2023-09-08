@@ -1,7 +1,6 @@
 const express = require('express');
 const mongoSanitize = require('express-mongo-sanitize');
-const connectDb = require('../lib/db/connectDb');
-const indexSync = require('../lib/db/indexSync');
+const { connectDb, indexSync, clearPending } = require('../lib/db');
 const path = require('path');
 const cors = require('cors');
 const routes = require('./routes');
@@ -18,6 +17,7 @@ const startServer = async () => {
   await connectDb();
   console.log('Connected to MongoDB');
   await indexSync();
+  await clearPending();
 
   const app = express();
 

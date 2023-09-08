@@ -1,11 +1,14 @@
 const { handleError } = require('../utils');
-const { CONCURRENT_MESSAGE_LIMIT, MONGO_URI } = process.env ?? {};
-const limit = CONCURRENT_MESSAGE_LIMIT ?? 1;
+const { CONCURRENT_MESSAGE_MAX, MONGO_URI } = process.env ?? {};
+const limit = CONCURRENT_MESSAGE_MAX ?? 1;
 const KeyvMongo = require('@keyv/mongo');
 const Keyv = require('keyv');
 
 const keyvMongo = new KeyvMongo(MONGO_URI, { collection: 'cache' });
 keyvMongo.on('error', (err) => console.error('KeyvMongo connection error:', err));
+
+const keyv = new Keyv({ store: keyvMongo, namespace: 'pendingRequests' });
+const violations = new Keyv({ store: keyvMongo, namespace: 'violations' });
 
 /**
  * Middleware to limit concurrent requests for a user.
@@ -31,18 +34,22 @@ const concurrentLimiter = async (req, res, next) => {
   }
 
   const userId = req.user.id;
-  const keyv = new Keyv({ store: keyvMongo, ttlSupport: true, namespace: 'pendingRequests' });
   const pendingRequest = await keyv.get(userId);
 
   if (pendingRequest && pendingRequest >= limit) {
     // User already has a pending request
+    await violations.set(
+      userId,
+      `Exceeded concurrent message limit, ${pendingRequest} pending requests`,
+    );
+    await keyv.set(userId, pendingRequest + 1);
     return handleError(res, `Only ${limit} request(s) allowed at a time.`);
   } else if (pendingRequest) {
     // User has a pending request, increment the count
-    await keyv.set(userId, pendingRequest + 1, 60 * 1000);
+    await keyv.set(userId, pendingRequest + 1);
   } else {
     // User has no pending requests, set the count to 1
-    await keyv.set(userId, 1, 60 * 1000);
+    await keyv.set(userId, 1);
   }
 
   // Ensure the user is removed from the store once the request is done
@@ -51,15 +58,7 @@ const concurrentLimiter = async (req, res, next) => {
       return;
     }
 
-    const currentPending = await keyv.get(userId);
-    if (!currentPending) {
-      return;
-    }
-    if (currentPending > 1) {
-      await keyv.set(userId, currentPending - 1, 60 * 1000);
-    } else {
-      await keyv.delete(userId);
-    }
+    await keyv.delete(userId);
   };
 
   res.on('finish', cleanUp);

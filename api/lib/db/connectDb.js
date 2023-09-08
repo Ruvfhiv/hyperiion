@@ -1,6 +1,7 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
+const KeyvMongoDB = require('keyv-mongodb');
 
 if (!MONGO_URI) {
   throw new Error('Please define the MONGO_URI environment variable');
@@ -41,4 +42,9 @@ async function connectDb() {
   return cached.conn;
 }
 
-module.exports = connectDb;
+const createKeyvMongo = (collection) => {
+  const keyvMongo = new KeyvMongoDB({ collection, mongooseConnection: cached.connection });
+  keyvMongo.on('error', (err) => console.error('KeyvMongo connection error:', err));
+};
+
+module.exports = { connectDb, cached, createKeyvMongo };
